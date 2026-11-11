@@ -1,0 +1,13 @@
+# Telegram Bot API (with job-queue for the background monitor)
+python-telegram-bot[job-queue,socks]==22.2
+
+# HTTP requests for the GGSel API
+requests==2.32.4
+urllib3==2.5.0
+
+# Direct asynchronous HTTP clients used by the bot and updater
+aiohttp==3.12.14
+httpx==0.28.1
+
+# Environment variable loading (for your .env file)
+python-dotenv==1.1.1

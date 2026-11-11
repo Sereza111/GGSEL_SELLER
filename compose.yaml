@@ -1,0 +1,23 @@
+services:
+  ggsel-bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AUTO_UPDATE: "false"
+      DATABASE_PATH: /data/ggsel_bot.db
+      AUTORESPONDER_CONFIG_PATH: /data/autoresponder.json
+      PLUGINS_DIR: /data/plugins
+    working_dir: /data
+    volumes:
+      - ggsel-data:/data
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ggsel-data:
