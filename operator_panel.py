@@ -63,8 +63,7 @@ class OperatorPanel:
             f"{'включены' if notifications else 'выключены'}\n"
             f"💬 Чатов: {len(self._topics())} · Команд: {len(self.service.autoresponder.get_triggers())}\n"
             f"⚙️ Автоответы {'включены' if self.service.autoresponder.is_enabled() else 'выключены'}\n\n"
-            "Ответ покупателю: «Чаты и ответы» → его тема → обычный текст.\n"
-            "Все настройки доступны в этом меню."
+            "Чтобы ответить покупателю, откройте его тему через «Чаты и ответы» и напишите текст."
         )
         b = self.button
         keyboard = []
@@ -72,14 +71,14 @@ class OperatorPanel:
         if dashboard_link:
             keyboard.append([InlineKeyboardButton("✦ Открыть панель", url=dashboard_link,
                                                   api_kwargs={"style": "primary"})])
-            text += "\nИнтерактивная панель открывается в личном чате с ботом."
+            text += "\nПанель откроется в личном чате."
         keyboard += [
             [b("💬 Чаты и ответы", "panel:chats:0"), b("🩺 Состояние", "panel:status")],
-            [b("⌨️ Команды покупателей", "auto_triggers"), b("⚙️ Автоответы", "auto_menu")],
+            [b("⌨️ Команды", "auto_triggers"), b("⚙️ Автоответы", "auto_menu")],
             [b("🔔 Уведомления", "panel:notifications"), b("🧩 Плагины", "panel:plugins:0")],
             [b("🗂 Конфигурация", "panel:config")],
             [b("💰 Кошелёк", "check_balance"), b("📊 Статистика", "stats")],
-            [b("❓ Как пользоваться", "panel:help"), b("Закрыть", "close")],
+            [b("❓ Помощь", "panel:help"), b("Закрыть", "close")],
         ]
         return text, keyboard
 

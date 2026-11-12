@@ -40,8 +40,7 @@ class ModernOperatorPanelTests(unittest.TestCase):
             "check_balance", "stats", "panel:help", "close",
         })
         self.assertTrue(all(len(value.encode("utf-8")) <= 64 for value in callbacks))
-        self.assertIn("его тема → обычный текст", text)
-        self.assertIn("Все настройки", text)
+        self.assertIn("его тему через «Чаты и ответы» и напишите текст", text)
 
     def test_main_menu_shows_counts_for_linked_chats_and_configured_commands(self):
         text, _ = self.panel.main_menu()
