@@ -2,11 +2,64 @@ import asyncio
 import logging
 from typing import Optional, Tuple
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, ReactionTypeEmoji
-from telegram.ext import Application, ApplicationHandlerStop, MessageHandler, CallbackQueryHandler, CommandHandler, filters
+from telegram.ext import Application, ApplicationHandlerStop, MessageHandler, CallbackQueryHandler, CommandHandler, TypeHandler, filters
 from telegram.error import BadRequest, Forbidden, InvalidToken, NetworkError, RetryAfter, TelegramError, TimedOut
 from telegram.request import HTTPXRequest
 from config import Config
 from locales import locales, _
+
+from telegram.ext import BaseUpdateProcessor
+
+
+class OperatorUpdateProcessor(BaseUpdateProcessor):
+    """Keep editor messages ordered while answering widgets independently."""
+
+    def __init__(self):
+        super().__init__(max_concurrent_updates=32)
+        self._messages = asyncio.Queue()
+        self._worker = None
+
+    async def initialize(self):
+        self._worker = asyncio.create_task(self._process_messages())
+
+    async def shutdown(self):
+        if self._worker:
+            if not self._worker.done():
+                await self._messages.join()
+                self._worker.cancel()
+            await asyncio.gather(self._worker, return_exceptions=True)
+            self._worker = None
+
+    async def _process_messages(self):
+        try:
+            while True:
+                coroutine = await self._messages.get()
+                try:
+                    await coroutine
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logging.exception("Telegram message processing failed")
+                finally:
+                    self._messages.task_done()
+        finally:
+            # BotService may cancel background tasks during shutdown. Close
+            # unscheduled coroutine objects instead of leaking them or hanging.
+            while not self._messages.empty():
+                coroutine = self._messages.get_nowait()
+                if hasattr(coroutine, "close"):
+                    coroutine.close()
+                self._messages.task_done()
+
+    async def do_process_update(self, update, coroutine):
+        if (getattr(update, "widget_query", None) is not None
+                or "widget_query" in getattr(update, "api_kwargs", {})):
+            await coroutine
+        else:
+            # Do not occupy the shared update slots while waiting for an
+            # earlier editor message: a burst must not starve widget answers.
+            self._messages.put_nowait(coroutine)
+
 
 class TelegramBot:
     def __init__(self, config: Config):
@@ -30,6 +83,8 @@ class TelegramBot:
         self.start_sync_handler = None
         self.stop_sync_handler = None
         self.operator_panel = None
+        self.widget_dashboard = None
+        self.public_username = None
         self._editor_user_id = None
 
     def set_topic_message_handler(self, h): self.topic_message_handler = h
@@ -41,6 +96,7 @@ class TelegramBot:
     def set_start_sync_handler(self, h): self.start_sync_handler = h
     def set_stop_sync_handler(self, h): self.stop_sync_handler = h
     def set_operator_panel(self, panel): self.operator_panel = panel
+    def set_widget_dashboard(self, dashboard): self.widget_dashboard = dashboard
 
     async def start(self):
         self.config.validate()
@@ -51,7 +107,12 @@ class TelegramBot:
         try:
             # Use the same configured Bot so polling and ordinary API calls
             # cannot accidentally diverge in their proxy configuration.
-            self.application = Application.builder().bot(self.bot).build()
+            builder = Application.builder().bot(self.bot)
+            if self.widget_dashboard:
+                builder = builder.concurrent_updates(OperatorUpdateProcessor())
+            self.application = builder.build()
+            if self.widget_dashboard:
+                self.application.add_handler(TypeHandler(Update, self._handle_widget_update), group=-2)
             if self.general_message_handler:
                 # A wizard consumes text before Telegram command/topic routing.
                 # In particular, '/help' may be the buyer command being edited.
@@ -63,6 +124,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("start_sync", self._handle_start_sync_command))
             self.application.add_handler(CommandHandler("stop_sync", self._handle_stop_sync_command))
             self.application.add_handler(CommandHandler(("menu", "start"), self._handle_menu_command))
+            self.application.add_handler(CommandHandler("dashboard", self._handle_menu_command))
             self.application.add_handler(CommandHandler("cancel", self._handle_cancel_command))
             self.application.add_handler(CommandHandler("help", self._handle_help_command))
             self.application.add_handler(CommandHandler("history", self._handle_history_command))
@@ -84,8 +146,12 @@ class TelegramBot:
                 self.application.add_handler(MessageHandler(general_filter, self._handle_general_message))
 
             await self.application.initialize()
+            try:
+                self.public_username = self.bot.username
+            except RuntimeError:
+                pass
             await self.application.start()
-            await self.application.updater.start_polling()
+            await self.application.updater.start_polling(allowed_updates=["message", "callback_query", "widget_query"])
             return True
         except Exception as e:
             logging.exception("Telegram startup failed")
@@ -166,6 +232,7 @@ class TelegramBot:
         await update.effective_message.reply_text(text)
 
     async def _handle_menu_command(self, update: Update, context):
+        if self.widget_dashboard and await self.widget_dashboard.open(update): return
         if not self._is_authorized(update): return
         self._cancel_editor(update)
         keyboard = [
@@ -182,10 +249,15 @@ class TelegramBot:
         try:
             if update.callback_query: await update.callback_query.edit_message_text(text, reply_markup=markup)
             else: await update.message.reply_text(text, reply_markup=markup)
+
         except RetryAfter as e:
             await asyncio.sleep(e.retry_after)
             if update.callback_query: await update.callback_query.edit_message_text(text, reply_markup=markup)
             else: await update.message.reply_text(text, reply_markup=markup)
+
+    async def _handle_widget_update(self, update: Update, context):
+        if self.widget_dashboard and await self.widget_dashboard.handle_update(update, context):
+            raise ApplicationHandlerStop
 
     def _cancel_editor(self, update):
         self._editor_user_id = None
@@ -199,12 +271,16 @@ class TelegramBot:
         await update.effective_message.reply_text("Ввод отменён. Открыть управление: /menu")
 
     async def _handle_help_command(self, update: Update, context):
+        if getattr(update.effective_chat, "type", None) == "private" and self.widget_dashboard:
+            await self.widget_dashboard.open(update)
+            return
         if not self._is_authorized(update): return
         await update.effective_message.reply_text(
             "Сообщения покупателей и заказы появляются в отдельных темах группы. "
             "Напишите обычный текст в теме покупателя — бот отправит его в GGsel. "
             "В разделе «Общее» сообщения покупателям не отправляются.\n\n"
             "/menu — чаты, уведомления, команды покупателей, настройки и плагины\n"
+            "/dashboard — личная панель с живыми показателями (в личном чате бота)\n"
             "/history — история переписки в теме покупателя\n"
             "/options — данные заказа в теме\n"
             "/cancel — отменить настройку\n"
@@ -220,7 +296,7 @@ class TelegramBot:
         if not self._is_authorized(update): raise ApplicationHandlerStop
         message = update.effective_message
         command = (message.text or "").split(maxsplit=1)[0].split("@")[0].lower()
-        if command in ("/cancel", "/menu", "/start", "/stop_sync", "/start_sync", "/id", "/myid",
+        if command in ("/cancel", "/menu", "/start", "/dashboard", "/stop_sync", "/start_sync", "/id", "/myid",
                        "/history", "/options", "/review"):
             return
         if importing:
@@ -296,6 +372,7 @@ class TelegramBot:
         if self.application:
             await self.application.updater.stop()
             await self.application.stop()
+            await self.application.update_processor.shutdown()
             await self.application.shutdown()
 
     async def _handle_topic_message(self, update: Update, context):

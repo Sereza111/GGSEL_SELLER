@@ -63,6 +63,9 @@ class BotService:
         from operator_panel import OperatorPanel
         self.operator_panel = OperatorPanel(self)
         self.telegram_bot.set_operator_panel(self.operator_panel)
+        from widget_dashboard import WidgetDashboard
+        self.widget_dashboard = WidgetDashboard(self)
+        self.telegram_bot.set_widget_dashboard(self.widget_dashboard)
 
         self._load_pending_topics()
         self._load_processed_reviews()
@@ -204,7 +207,8 @@ class BotService:
             asyncio.create_task(self.reauth_scheduler()),
             asyncio.create_task(self.purchase_checker()),
             asyncio.create_task(self.balance_monitor_loop()),
-            asyncio.create_task(self.update_exchange_rate_loop()) # <-- ADD THIS LINE
+            asyncio.create_task(self.update_exchange_rate_loop()),
+            asyncio.create_task(self.widget_dashboard.refresh_loop()),
         ]
 
         try:
@@ -798,6 +802,9 @@ class BotService:
         logging.info("Stopping bot...")
         self.running = False
         self._sync_enabled_event.set()
+        dashboard = getattr(self, "widget_dashboard", None)
+        if dashboard:
+            await dashboard.close()
         current_task = asyncio.current_task()
         tasks = [t for t in asyncio.all_tasks() if t is not current_task and not t.done()]
         for task in tasks: task.cancel()

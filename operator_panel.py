@@ -4,6 +4,7 @@ import copy
 import io
 import json
 import os
+import re
 import secrets
 import tempfile
 import time
@@ -27,8 +28,24 @@ class OperatorPanel:
         self._imports = {}
 
     @staticmethod
-    def button(text, action):
-        return InlineKeyboardButton(text, callback_data=action)
+    def button(text, action, style=None):
+        if style is None:
+            style = {"panel:chats:0": "primary", "panel:pause": "danger",
+                     "panel:resume": "success"}.get(action)
+            if action.startswith("panel:config_apply:"):
+                style = "primary"
+        if style not in (None, "primary", "success", "danger"):
+            raise ValueError("Недопустимый стиль кнопки")
+        # PTB versions before native style support forward this Bot API field.
+        # Older Telegram clients keep the same text and callback behavior.
+        return InlineKeyboardButton(text, callback_data=action,
+                                    api_kwargs={"style": style} if style else None)
+
+    def _dashboard_link(self):
+        username = getattr(self.service.telegram_bot, "public_username", None)
+        if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,31}", username):
+            return None
+        return f"https://t.me/{username}?start=dashboard"
 
     def notifications_enabled(self):
         return self.service.database.get_setting("telegram_notifications_enabled") != "false"
@@ -38,22 +55,33 @@ class OperatorPanel:
 
     def main_menu(self):
         active = bool(self.service.sync_enabled)
+        notifications = self.notifications_enabled()
         text = (
-            "🤖 Управление GGsel\n\n"
-            f"Синхронизация: {'✅ включена' if active else '⏸ остановлена'}\n"
-            f"Сообщения покупателей: {'🔔 уведомления включены' if self.notifications_enabled() else '🔕 уведомления выключены'}\n\n"
-            "Откройте «Чаты и ответы», выберите покупателя и напишите в его теме — "
-            "бот отправит текст в GGsel."
+            "GGsel · Рабочее место\n\n"
+            f"{'🟢' if active else '⏸'} Синхронизация {'включена' if active else 'остановлена'}\n"
+            f"{'🔔' if notifications else '🔕'} Уведомления о сообщениях "
+            f"{'включены' if notifications else 'выключены'}\n"
+            f"💬 Чатов: {len(self._topics())} · Команд: {len(self.service.autoresponder.get_triggers())}\n"
+            f"⚙️ Автоответы {'включены' if self.service.autoresponder.is_enabled() else 'выключены'}\n\n"
+            "Ответ покупателю: «Чаты и ответы» → его тема → обычный текст.\n"
+            "Все настройки доступны в этом меню."
         )
         b = self.button
-        return text, [
-            [b("💬 Чаты и ответы", "panel:chats:0"), b("🔔 Уведомления", "panel:notifications")],
-            [b("⌨️ Команды покупателей", "auto_triggers")],
-            [b("⚙️ Автоответы", "auto_menu"), b("🧩 Плагины", "panel:plugins:0")],
-            [b("🗂 Конфигурация", "panel:config"), b("🩺 Состояние", "panel:status")],
+        keyboard = []
+        dashboard_link = self._dashboard_link()
+        if dashboard_link:
+            keyboard.append([InlineKeyboardButton("✦ Открыть панель", url=dashboard_link,
+                                                  api_kwargs={"style": "primary"})])
+            text += "\nИнтерактивная панель открывается в личном чате с ботом."
+        keyboard += [
+            [b("💬 Чаты и ответы", "panel:chats:0"), b("🩺 Состояние", "panel:status")],
+            [b("⌨️ Команды покупателей", "auto_triggers"), b("⚙️ Автоответы", "auto_menu")],
+            [b("🔔 Уведомления", "panel:notifications"), b("🧩 Плагины", "panel:plugins:0")],
+            [b("🗂 Конфигурация", "panel:config")],
             [b("💰 Кошелёк", "check_balance"), b("📊 Статистика", "stats")],
-            [b("❓ Как пользоваться", "panel:help"), b("❌ Закрыть", "close")],
+            [b("❓ Как пользоваться", "panel:help"), b("Закрыть", "close")],
         ]
+        return text, keyboard
 
     def _authorized(self, update):
         chat = getattr(update, "effective_chat", None)
@@ -171,7 +199,7 @@ class OperatorPanel:
             "самой группы и её тем в Telegram."
         )
         keyboard = [[self.button("🔕 Выключить сообщения" if enabled else "🔔 Включить сообщения",
-                                 "panel:notify_toggle")],
+                                 "panel:notify_toggle", "danger" if enabled else "success")],
                     [self.button("🩺 Состояние синхронизации", "panel:status")],
                     [self.button("◀️ В меню", "panel:main")]]
         await self._render(update, text, keyboard)
@@ -191,7 +219,8 @@ class OperatorPanel:
                 text += f"⚠️ {str(plugin['error'])[:150]}\n"
             if PluginManager.ID_PATTERN.fullmatch(str(plugin["id"])):
                 keyboard.append([self.button(f"{'Выключить' if enabled else 'Включить'}: {label}",
-                                             f"panel:plugin:{plugin['id']}")])
+                                             f"panel:plugin:{plugin['id']}",
+                                             "danger" if enabled else "success")])
         if not plugins:
             text += "Плагины пока не установлены."
         nav = []
@@ -459,6 +488,8 @@ class OperatorPanel:
             elif action == "help":
                 await self._render(update,
                     "❓ Как пользоваться\n\n"
+                    "«Открыть панель» — интерактивная карточка в личном чате с ботом. "
+                    "В группе /menu открывает полное меню настроек.\n\n"
                     "1. «Чаты и ответы» → покупатель. Напишите обычный текст в его теме: бот отправит его в GGsel. "
                     "🔥 — API принял отправку; сообщение об ошибке — ответ не подтверждён.\n\n"
                     "2. «Команды покупателей» → добавить. Например, /help и текст инструкции. "

@@ -50,7 +50,7 @@ except ImportError:
     for cls in (TelegramError, BadRequest, Forbidden, InvalidToken, NetworkError, TimedOut, RetryAfter):
         setattr(telegram_error, cls.__name__, cls)
     telegram_ext = types.ModuleType("telegram.ext")
-    for name in ("Application", "MessageHandler", "CallbackQueryHandler", "CommandHandler", "filters"):
+    for name in ("Application", "MessageHandler", "CallbackQueryHandler", "CommandHandler", "TypeHandler", "BaseUpdateProcessor", "filters"):
         setattr(telegram_ext, name, object)
     telegram_ext.ApplicationHandlerStop = type("ApplicationHandlerStop", (Exception,), {})
     sys.modules["telegram"] = telegram
