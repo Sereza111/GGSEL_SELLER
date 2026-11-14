@@ -1,12 +1,16 @@
-# GGSEL SELLER
+# GGSEL SELLER — Telegram-бот для продавцов GGsel
 
-Telegram-бот для продавцов GGsel: уведомления о заказах и сообщениях, ответы покупателям, команды с готовым текстом и управление настройками из одной группы.
+**GGSEL SELLER** — бот с открытым исходным кодом для автоматизации работы продавца на маркетплейсе **GGsel**. Он связывает GGsel Seller API с Telegram: присылает уведомления о заказах, сообщениях и отзывах, передаёт ответы покупателям и выдаёт инструкции по их командам.
 
-Каждая переписка открывается в отдельной теме Telegram. Вы пишете ответ в этой теме — бот передаёт его покупателю в GGsel. Управление доступно через `/menu`, без отдельного веб-интерфейса.
+Каждая переписка открывается в отдельной теме Telegram. Вы пишете ответ в этой теме — бот передаёт его покупателю в чат GGsel. Покупателю не нужно переходить в Telegram. Автоответы, команды покупателей, уведомления и плагины настраиваются через `/menu`.
 
-В личном чате бота доступна интерактивная HTML-панель: показатели магазина, переходы к перепискам, управление уведомлениями и синхронизацией. Она обновляет данные в том же сообщении и подстраивается под тему Telegram.
+В личном чате бота доступна интерактивная **HTML-панель Telegram**: счётчики чатов и очереди сообщений, переходы к перепискам, управление уведомлениями и синхронизацией. Она обновляет данные в том же сообщении и подстраивается под тему Telegram.
 
-Проект поддерживает один аккаунт продавца и одну Telegram-группу на экземпляр. Это независимый инструмент, не официальный продукт GGsel.
+Бот написан на **Python**, хранит состояние в **SQLite** и запускается на вашем сервере через **Docker Compose** или напрямую. Один экземпляр обслуживает один аккаунт продавца и одну Telegram-группу. Это независимый инструмент, не официальный продукт GGsel.
+
+[Установка](#быстрый-запуск-с-docker) · [Как пользоваться](#как-пользоваться) · [Команды](#команды-telegram) · [Плагины](PLUGINS.md) · [История изменений](CHANGELOG.md) · [Сообщить о проблеме](https://github.com/Sereza111/GGSEL_SELLER/issues)
+
+**English summary:** GGSEL SELLER is an open-source, self-hosted Telegram bot for GGsel marketplace sellers. It connects to the GGsel Seller API to deliver order, message and review notifications, relay seller replies through Telegram forum topics, and answer buyer commands with saved text. It includes configurable auto-replies, Python plugins, JSON configuration import/export and a private Telegram HTML widget dashboard. Built with Python and SQLite; deploy with Docker Compose. One seller account per instance. Unofficial project, licensed under MIT.
 
 ## Возможности
 
